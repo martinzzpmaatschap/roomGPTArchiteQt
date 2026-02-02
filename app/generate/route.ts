@@ -1,165 +1,213 @@
-import { Ratelimit } from "@upstash/ratelimit";
-import redis from "../../utils/redis";
-import { NextResponse } from "next/server";
-import { headers } from "next/headers";
-import { buildPrompt } from "../../utils/dropdownTypes";
-
 // =============================================================================
-// ARCHITEQT - AI ROOM DESIGNER
+// ARCHITEQT - AI Room Designer API Route
 // Model: rocketdigitalai/interior-design-sdxl-lightning
-// Speed: ~9 seconds | Cost: ~$0.011 per generation
+// Speed: ~9 seconds | Cost: ~$0.011/generation
+// Last Updated: 2026-02-02
 // =============================================================================
 
-// Create a new ratelimiter, that allows 5 requests per 24 hours
+import Replicate from "replicate";
+import { NextResponse } from "next/server";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
+import { getStyleByName, buildPrompt } from "../../utils/dropdownTypes";
+
+// =============================================================================
+// UPSTASH REDIS SETUP (Rate Limiting)
+// =============================================================================
+const redis = process.env.UPSTASH_REDIS_REST_URL
+  ? new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    })
+  : null;
+
 const ratelimit = redis
   ? new Ratelimit({
       redis: redis,
-      limiter: Ratelimit.fixedWindow(5, "1440 m"),
+      limiter: Ratelimit.slidingWindow(5, "24 h"), // 5 generaties per 24 uur
       analytics: true,
+      prefix: "architeqt-roomdesigner",
     })
-  : undefined;
+  : null;
 
+// =============================================================================
+// REPLICATE CLIENT
+// =============================================================================
+const replicate = new Replicate({
+  auth: process.env.REPLICATE_API_TOKEN,
+});
+
+// =============================================================================
+// POST HANDLER
+// =============================================================================
 export async function POST(request: Request) {
-  // Rate Limiter Code
-  if (ratelimit) {
-    const headersList = headers();
-    const ipIdentifier = headersList.get("x-real-ip");
+  try {
+    // -------------------------------------------------------------------------
+    // Rate Limiting Check
+    // -------------------------------------------------------------------------
+    if (ratelimit) {
+      const ip = request.headers.get("x-forwarded-for") ?? 
+                 request.headers.get("x-real-ip") ?? 
+                 "127.0.0.1";
+      
+      const { success, limit, remaining, reset } = await ratelimit.limit(ip);
 
-    const result = await ratelimit.limit(ipIdentifier ?? "");
+      if (!success) {
+        const resetDate = new Date(reset);
+        return NextResponse.json(
+          {
+            error: "Limiet bereikt",
+            message: `Je hebt het maximum van ${limit} generaties per 24 uur bereikt. Probeer weer na ${resetDate.toLocaleTimeString("nl-NL")}.`,
+            limit,
+            remaining: 0,
+            resetAt: reset,
+          },
+          { 
+            status: 429,
+            headers: {
+              "X-RateLimit-Limit": limit.toString(),
+              "X-RateLimit-Remaining": "0",
+              "X-RateLimit-Reset": reset.toString(),
+            }
+          }
+        );
+      }
+    }
 
-    if (!result.success) {
-      return new Response(
-        "Limiet bereikt. Je hebt het maximum aantal generaties bereikt. Probeer morgen opnieuw.",
-        {
-          status: 429,
-          headers: {
-            "X-RateLimit-Limit": result.limit,
-            "X-RateLimit-Remaining": result.remaining,
-          } as any,
-        }
+    // -------------------------------------------------------------------------
+    // Parse Request Body
+    // -------------------------------------------------------------------------
+    const body = await request.json();
+    const { imageUrl, theme, room } = body;
+
+    // -------------------------------------------------------------------------
+    // Input Validation
+    // -------------------------------------------------------------------------
+    if (!imageUrl) {
+      return NextResponse.json(
+        { error: "Geen afbeelding opgegeven. Upload eerst een foto van je kamer." },
+        { status: 400 }
       );
     }
-  }
 
-  const { imageUrl, theme, room } = await request.json();
+    if (!theme) {
+      return NextResponse.json(
+        { error: "Kies een stijl voor je nieuwe interieur." },
+        { status: 400 }
+      );
+    }
 
-  // Validatie
-  if (!imageUrl) {
-    return NextResponse.json(
-      { error: "Geen afbeelding opgegeven" },
-      { status: 400 }
-    );
-  }
+    if (!room) {
+      return NextResponse.json(
+        { error: "Selecteer het type kamer." },
+        { status: 400 }
+      );
+    }
 
-  if (!theme || !room) {
-    return NextResponse.json(
-      { error: "Kies een stijl en kamertype" },
-      { status: 400 }
-    );
-  }
+    // -------------------------------------------------------------------------
+    // Build Prompts using Helper Function
+    // -------------------------------------------------------------------------
+    const { prompt, negativePrompt } = buildPrompt(theme, room);
 
-  // Bouw prompts met Nederlandse stijl presets
-  const { prompt, negativePrompt } = buildPrompt(theme, room);
+    console.log("🎨 [ArchiteQt] Generatie gestart");
+    console.log("   Stijl:", theme);
+    console.log("   Kamer:", room);
+    console.log("   Prompt (preview):", prompt.substring(0, 80) + "...");
 
-  console.log("🎨 Generatie gestart:", { theme, room });
-  console.log("📝 Prompt:", prompt.substring(0, 100) + "...");
-
-  try {
-    // POST request to Replicate to start the image generation
+    // -------------------------------------------------------------------------
+    // Replicate API Call - Lightning Model
+    // -------------------------------------------------------------------------
     const startTime = Date.now();
-    
-    let startResponse = await fetch("https://api.replicate.com/v1/predictions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Token " + process.env.REPLICATE_API_KEY,
-      },
-      body: JSON.stringify({
-        version:
-          "rocketdigitalai/interior-design-sdxl-lightning:latest",
+
+    const output = await replicate.run(
+      "rocketdigitalai/interior-design-sdxl-lightning",
+      {
         input: {
           image: imageUrl,
           prompt: prompt,
           negative_prompt: negativePrompt,
-          num_inference_steps: 8, // Lightning model: 4-10 steps
-          guidance_scale: 2.0, // Lightning model: lower guidance
-          controlnet_conditioning_scale: 0.8,
+          num_inference_steps: 8,              // Lightning: 4-10 steps optimal
+          guidance_scale: 2.0,                 // Lightning: lower guidance works better
+          controlnet_conditioning_scale: 0.8,  // Preserve room structure
           seed: Math.floor(Math.random() * 1000000),
         },
-      }),
+      }
+    );
+
+    const duration = Date.now() - startTime;
+    
+    console.log(`✅ [ArchiteQt] Generatie voltooid in ${duration}ms`);
+    console.log("   Output type:", typeof output);
+
+    // -------------------------------------------------------------------------
+    // Return Success Response
+    // -------------------------------------------------------------------------
+    return NextResponse.json({
+      success: true,
+      output: output,
+      metadata: {
+        duration: duration,
+        style: theme,
+        room: room,
+        model: "interior-design-sdxl-lightning",
+      },
     });
 
-    let jsonStartResponse = await startResponse.json();
+  } catch (error: unknown) {
+    // -------------------------------------------------------------------------
+    // Error Handling
+    // -------------------------------------------------------------------------
+    console.error("❌ [ArchiteQt] Generatie fout:", error);
 
-    // Check for API errors
-    if (jsonStartResponse.error) {
-      console.error("❌ Replicate API error:", jsonStartResponse.error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    // Specifieke error responses
+    if (errorMessage.includes("rate limit") || errorMessage.includes("Rate limit")) {
       return NextResponse.json(
-        { error: "Er ging iets mis bij het starten. Probeer opnieuw." },
+        { 
+          error: "API limiet bereikt", 
+          message: "De AI service is tijdelijk overbelast. Probeer het over enkele minuten opnieuw." 
+        },
+        { status: 429 }
+      );
+    }
+
+    if (errorMessage.includes("Invalid API token") || errorMessage.includes("Unauthorized")) {
+      console.error("🔑 [ArchiteQt] KRITIEK: Ongeldige API token!");
+      return NextResponse.json(
+        { 
+          error: "Configuratiefout", 
+          message: "Er is een probleem met de service configuratie. Neem contact op met support." 
+        },
         { status: 500 }
       );
     }
 
-    let endpointUrl = jsonStartResponse.urls.get;
-
-    // GET request to poll for result
-    let restoredImage: string | null = null;
-    let attempts = 0;
-    const maxAttempts = 60; // Max 60 seconds
-
-    while (!restoredImage && attempts < maxAttempts) {
-      console.log(`⏳ Polling (${attempts + 1}/${maxAttempts})...`);
-      
-      let finalResponse = await fetch(endpointUrl, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Token " + process.env.REPLICATE_API_KEY,
+    if (errorMessage.includes("NSFW") || errorMessage.includes("safety")) {
+      return NextResponse.json(
+        { 
+          error: "Afbeelding geweigerd", 
+          message: "De afbeelding kon niet worden verwerkt. Probeer een andere foto." 
         },
-      });
-      
-      let jsonFinalResponse = await finalResponse.json();
-
-      if (jsonFinalResponse.status === "succeeded") {
-        restoredImage = jsonFinalResponse.output;
-        const duration = Date.now() - startTime;
-        console.log(`✅ Generatie voltooid in ${duration}ms`);
-      } else if (jsonFinalResponse.status === "failed") {
-        console.error("❌ Generatie gefaald:", jsonFinalResponse.error);
-        return NextResponse.json(
-          { error: "Generatie mislukt. Probeer een andere afbeelding." },
-          { status: 500 }
-        );
-      } else {
-        // Still processing
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        attempts++;
-      }
+        { status: 400 }
+      );
     }
 
-    if (!restoredImage) {
-      console.error("❌ Timeout na", maxAttempts, "seconden");
+    if (errorMessage.includes("timeout") || errorMessage.includes("Timeout")) {
       return NextResponse.json(
-        { error: "Generatie duurde te lang. Probeer opnieuw." },
+        { 
+          error: "Timeout", 
+          message: "De generatie duurde te lang. Probeer het opnieuw met een kleinere afbeelding." 
+        },
         { status: 504 }
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      output: restoredImage,
-      duration: Date.now() - startTime,
-      style: theme,
-      room: room,
-    });
-
-  } catch (error: any) {
-    console.error("❌ Onverwachte fout:", error);
-    
+    // Generic error
     return NextResponse.json(
       { 
-        error: "Er ging iets mis. Probeer opnieuw of neem contact op met support.",
-        details: process.env.NODE_ENV === "development" ? error.message : undefined
+        error: "Generatie mislukt", 
+        message: "Er ging iets mis bij het genereren van je nieuwe interieur. Probeer het opnieuw." 
       },
       { status: 500 }
     );
