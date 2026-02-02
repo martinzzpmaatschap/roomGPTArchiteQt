@@ -120,7 +120,7 @@ export async function POST(request: Request) {
     const startTime = Date.now();
 
     const output = await replicate.run(
-      "rocketdigitalai/interior-design-sdxl-lightning",
+      "rocketdigitalai/interior-design-sdxl-lightning:5d8da4e5",
       {
         input: {
           image: imageUrl,
