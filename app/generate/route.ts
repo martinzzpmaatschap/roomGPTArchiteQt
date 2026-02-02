@@ -126,10 +126,9 @@ export async function POST(request: Request) {
           image: imageUrl,
           prompt: prompt,
           negative_prompt: negativePrompt,
-          num_inference_steps: 8,              // Lightning: 4-10 steps optimal
-          guidance_scale: 2.0,                 // Lightning: lower guidance works better
-          controlnet_conditioning_scale: 0.8,  // Preserve room structure
-          seed: Math.floor(Math.random() * 1000000),
+          inference_steps: 6,
+          guidance_scale: 7,
+          depth_strength: 0.8,
         },
       }
     );
