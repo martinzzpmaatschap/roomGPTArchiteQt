@@ -24,7 +24,7 @@ const redis = process.env.UPSTASH_REDIS_REST_URL
 const ratelimit = redis
   ? new Ratelimit({
       redis: redis,
-      limiter: Ratelimit.slidingWindow(5, "24 h"), // 5 generaties per 24 uur
+      limiter: Ratelimit.slidingWindow(100, "24 h"), // Temp: 100 voor testing
       analytics: true,
       prefix: "architeqt-roomdesigner",
     })
