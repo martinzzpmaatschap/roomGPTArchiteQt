@@ -126,8 +126,8 @@ export async function POST(request: Request) {
           image: imageUrl,
           prompt: prompt,
           negative_prompt: negativePrompt,
-          inference_steps: 6,
-          guidance_scale: 7,
+          num_inference_steps: 6,
+          guidance_scale: 7.5,
           depth_strength: 0.8,
         },
       }
