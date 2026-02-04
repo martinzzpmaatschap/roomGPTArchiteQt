@@ -120,23 +120,25 @@ export async function POST(request: Request) {
     const startTime = Date.now();
 
     const output = await replicate.run(
-      "rocketdigitalai/interior-design-sdxl-lightning:5d8da4e5c98fea03dcfbe3ec89e40cf0f4a0074a8930fa02aa0ee2aaf98c3d11",
-      {
-        input: {
-          image: imageUrl,
-          prompt: prompt,
-          negative_prompt: negativePrompt,
-          num_inference_steps: 6,
-          guidance_scale: 7.5,
-          depth_strength: 0.8,
-        },
-      }
-    );
+  "rocketdigitalai/interior-design-sdxl-lightning:5d8da4e5c98fea03dcfbe3ec89e40cf0f4a0074a8930fa02aa0ee2aaf98c3d11",
+  {
+    input: {
+      image: imageUrl,
+      prompt: prompt,
+      negative_prompt: negativePrompt,
+      num_inference_steps: 6,
+      guidance_scale: 7.5,
+      depth_strength: 0.8,
+    },
+  }
+);
 
-    const duration = Date.now() - startTime;
-    
-    console.log(`✅ [ArchiteQt] Generatie voltooid in ${duration}ms`);
-    console.log("   Output type:", typeof output);
+const duration = Date.now() - startTime;
+
+// 🔍 DEBUG - Log de volledige output
+console.log("🔍 [DEBUG] Raw output:", JSON.stringify(output, null, 2));
+console.log("🔍 [DEBUG] Output type:", typeof output);
+console.log("🔍 [DEBUG] Is array:", Array.isArray(output));
 
     // -------------------------------------------------------------------------
     // Return Success Response
