@@ -115,44 +115,70 @@ export async function POST(request: Request) {
     console.log("   Prompt (preview):", prompt.substring(0, 80) + "...");
 
     // -------------------------------------------------------------------------
-    // Replicate API Call - Lightning Model
-    // -------------------------------------------------------------------------
-    const startTime = Date.now();
+// Replicate API Call - Use predictions.create instead of run
+// -------------------------------------------------------------------------
+const startTime = Date.now();
 
-    const output = await replicate.run(
-  "rocketdigitalai/interior-design-sdxl-lightning:5d8da4e5c98fea03dcfbe3ec89e40cf0f4a0074a8930fa02aa0ee2aaf98c3d11",
-  {
-    input: {
-      image: imageUrl,
-      prompt: prompt,
-      negative_prompt: negativePrompt,
-      num_inference_steps: 6,
-      guidance_scale: 7.5,
-      depth_strength: 0.8,
-    },
+// Create prediction (don't wait for download)
+const prediction = await replicate.predictions.create({
+  version: "5d8da4e5c98fea03dcfbe3ec89e40cf0f4a0074a8930fa02aa0ee2aaf98c3d11",
+  input: {
+    image: imageUrl,
+    prompt: prompt,
+    negative_prompt: negativePrompt,
+    num_inference_steps: 6,
+    guidance_scale: 7.5,
+    depth_strength: 0.8,
+  },
+});
+
+console.log("🎨 [ArchiteQt] Prediction created:", prediction.id);
+
+// Poll for completion (with timeout)
+let result = prediction;
+const maxWaitTime = 45000; // 45 seconds max
+const pollInterval = 2000; // Check every 2 seconds
+const startPoll = Date.now();
+
+while (result.status !== "succeeded" && result.status !== "failed") {
+  if (Date.now() - startPoll > maxWaitTime) {
+    throw new Error("Timeout: Generatie duurde te lang");
   }
-);
+  
+  await new Promise(resolve => setTimeout(resolve, pollInterval));
+  result = await replicate.predictions.get(prediction.id);
+  console.log("🔄 [ArchiteQt] Status:", result.status);
+}
+
+if (result.status === "failed") {
+  throw new Error(result.error || "Generatie mislukt");
+}
 
 const duration = Date.now() - startTime;
 
-// 🔍 DEBUG - Log de volledige output
-console.log("🔍 [DEBUG] Raw output:", JSON.stringify(output, null, 2));
-console.log("🔍 [DEBUG] Output type:", typeof output);
-console.log("🔍 [DEBUG] Is array:", Array.isArray(output));
+// Get the output URL directly (don't download)
+const outputUrl = Array.isArray(result.output) ? result.output[0] : result.output;
 
-    // -------------------------------------------------------------------------
-    // Return Success Response
-    // -------------------------------------------------------------------------
-    return NextResponse.json({
-      success: true,
-      output: output,
-      metadata: {
-        duration: duration,
-        style: theme,
-        room: room,
-        model: "interior-design-sdxl-lightning",
-      },
-    });
+console.log("✅ [ArchiteQt] Generatie voltooid in", duration, "ms");
+console.log("🔍 [DEBUG] Output URL:", outputUrl);
+
+if (!outputUrl || typeof outputUrl !== 'string') {
+  throw new Error("Geen output URL ontvangen");
+}
+
+// -------------------------------------------------------------------------
+// Return Success Response
+// -------------------------------------------------------------------------
+return NextResponse.json({
+  success: true,
+  output: outputUrl,
+  metadata: {
+    duration: duration,
+    style: theme,
+    room: room,
+    model: "interior-design-sdxl-lightning",
+  },
+});
 
   } catch (error: unknown) {
     // -------------------------------------------------------------------------
