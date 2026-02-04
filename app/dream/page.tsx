@@ -78,8 +78,11 @@ export default function DreamPage() {
   );
 
   async function generatePhoto(fileUrl: string) {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    setLoading(true);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  setLoading(true);
+  setError(null);
+  
+  try {
     const res = await fetch("/generate", {
       method: "POST",
       headers: {
@@ -88,16 +91,25 @@ export default function DreamPage() {
       body: JSON.stringify({ imageUrl: fileUrl, theme, room }),
     });
 
-    let newPhoto = await res.json();
+    const data = await res.json();
+    
     if (res.status !== 200) {
-      setError(newPhoto);
+      setError(data.message || data.error || "Er ging iets mis bij het genereren");
     } else {
-      setRestoredImage(newPhoto[1]);
+      // Handle Replicate output (can be string or array)
+      const imageUrl = Array.isArray(data.output) 
+        ? data.output[0] 
+        : data.output;
+      setRestoredImage(imageUrl);
     }
-    setTimeout(() => {
-      setLoading(false);
-    }, 1300);
+  } catch (err) {
+    setError("Netwerkfout. Controleer je internetverbinding.");
   }
+  
+  setTimeout(() => {
+    setLoading(false);
+  }, 1300);
+}
 
   return (
     <div className="flex max-w-6xl mx-auto flex-col items-center justify-center py-2 min-h-screen">
