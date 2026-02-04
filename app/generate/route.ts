@@ -151,7 +151,10 @@ while (result.status !== "succeeded" && result.status !== "failed") {
 }
 
 if (result.status === "failed") {
-  throw new Error(result.error || "Generatie mislukt");
+  const errorMsg = typeof result.error === 'string' 
+    ? result.error 
+    : (result.error as any)?.message || "Generatie mislukt";
+  throw new Error(errorMsg);
 }
 
 const duration = Date.now() - startTime;
