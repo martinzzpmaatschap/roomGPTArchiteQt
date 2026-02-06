@@ -215,7 +215,7 @@ export async function POST(request: Request) {
     const prediction = await replicate.predictions.create({
       // adirik/interior-design - Photorealistic interior design
       // 1.9M+ runs, proven quality
-      version: "76604baddc85b1b4616e1c6475eca080da339c8875bd4996705571e0c7a0d20f",
+      version: "76604baddc85b1b4616e1c6475eca080da339c8875bd4996705440484a6eac38",
       input: {
         image: imageUrl,
         prompt: prompt,
