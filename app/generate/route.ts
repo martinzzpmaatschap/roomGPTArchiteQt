@@ -3,6 +3,7 @@
 // Model: rocketdigitalai/interior-design-sdxl-lightning
 // Speed: ~9 seconds | Cost: ~$0.011/generation
 // Last Updated: 2026-02-06
+// FIX: Handle Replicate SDK v1.0+ FileOutput objects (not raw URLs)
 // FIX: Convert Bytescale thumbnail URLs to raw URLs for Replicate compatibility
 // =============================================================================
 
@@ -25,7 +26,7 @@ const redis = process.env.UPSTASH_REDIS_REST_URL
 const ratelimit = redis
   ? new Ratelimit({
       redis: redis,
-      limiter: Ratelimit.slidingWindow(100, "24 h"), // Temp: 100 voor testing
+      limiter: Ratelimit.slidingWindow(100, "24 h"),
       analytics: true,
       prefix: "architeqt-roomdesigner",
     })
@@ -40,13 +41,10 @@ const replicate = new Replicate({
 
 // =============================================================================
 // HELPER: Fix Bytescale URL for Replicate compatibility
-// Replicate cannot fetch /thumbnail/ URLs - they return transformation metadata
-// instead of actual image data. We need to use /raw/ URLs instead.
 // =============================================================================
 function fixBytescaleUrl(url: string): string {
   if (!url) return url;
   
-  // Check if this is a Bytescale URL with /thumbnail/ path
   if (url.includes('upcdn.io') && url.includes('/thumbnail/')) {
     const fixedUrl = url.replace('/thumbnail/', '/raw/');
     console.log("🔧 [ArchiteQt] Fixed Bytescale URL:");
@@ -55,7 +53,6 @@ function fixBytescaleUrl(url: string): string {
     return fixedUrl;
   }
   
-  // Also handle /image/ transformation URLs (just in case)
   if (url.includes('upcdn.io') && url.includes('/image/')) {
     const fixedUrl = url.replace('/image/', '/raw/');
     console.log("🔧 [ArchiteQt] Fixed Bytescale image URL:");
@@ -65,6 +62,66 @@ function fixBytescaleUrl(url: string): string {
   }
   
   return url;
+}
+
+// =============================================================================
+// HELPER: Extract URL from Replicate output
+// Replicate SDK v1.0+ returns FileOutput objects instead of raw URL strings
+// =============================================================================
+function extractOutputUrl(output: unknown): string {
+  console.log("📦 [ArchiteQt] Extracting URL from output...");
+  console.log("   Raw output:", JSON.stringify(output));
+  console.log("   Type:", typeof output);
+
+  // Case 1: Direct string URL (old SDK format)
+  if (typeof output === 'string') {
+    console.log("   ✅ Direct string URL");
+    return output;
+  }
+
+  // Case 2: FileOutput object with .url property (SDK v1.0+)
+  if (output && typeof output === 'object' && !Array.isArray(output)) {
+    const fileOutput = output as Record<string, unknown>;
+    
+    // Check for .url property (FileOutput standard)
+    if (typeof fileOutput.url === 'string') {
+      console.log("   ✅ FileOutput object with .url property");
+      return fileOutput.url;
+    }
+    
+    // Check for other common properties
+    if (typeof fileOutput.image === 'string') {
+      console.log("   ✅ Object with .image property");
+      return fileOutput.image;
+    }
+    
+    if (typeof fileOutput.output === 'string') {
+      console.log("   ✅ Object with .output property");
+      return fileOutput.output;
+    }
+  }
+
+  // Case 3: Array of outputs
+  if (Array.isArray(output) && output.length > 0) {
+    const first = output[0];
+    console.log("   📦 Array output, first element:", JSON.stringify(first));
+    
+    if (typeof first === 'string') {
+      console.log("   ✅ Array of strings");
+      return first;
+    }
+    
+    if (first && typeof first === 'object') {
+      const firstObj = first as Record<string, unknown>;
+      if (typeof firstObj.url === 'string') {
+        console.log("   ✅ Array of FileOutput objects");
+        return firstObj.url;
+      }
+    }
+  }
+
+  console.error("   ❌ Could not extract URL from output");
+  throw new Error("Kon geen geldige afbeelding URL extraheren uit de AI response");
 }
 
 // =============================================================================
@@ -155,7 +212,6 @@ export async function POST(request: Request) {
     // -------------------------------------------------------------------------
     const startTime = Date.now();
 
-    // Create prediction (don't wait for download)
     const prediction = await replicate.predictions.create({
       version: "5d8da4e5c98fea03dcfbe3ec89e40cf0f4a0074a8930fa02aa0ee2aaf98c3d11",
       input: {
@@ -170,10 +226,12 @@ export async function POST(request: Request) {
 
     console.log("🎨 [ArchiteQt] Prediction created:", prediction.id);
 
+    // -------------------------------------------------------------------------
     // Poll for completion (with timeout)
+    // -------------------------------------------------------------------------
     let result = prediction;
-    const maxWaitTime = 55000; // 45 seconds max
-    const pollInterval = 2000; // Check every 2 seconds
+    const maxWaitTime = 120000; // 120 seconds max (increased for slow generations)
+    const pollInterval = 2000;
     const startPoll = Date.now();
 
     while (result.status !== "succeeded" && result.status !== "failed") {
@@ -186,14 +244,10 @@ export async function POST(request: Request) {
       console.log("🔄 [ArchiteQt] Status:", result.status);
     }
 
-    // ← HIER moet de logging staan, NA de loop!
-console.log("📦 [ArchiteQt] Final result.output:", JSON.stringify(result.output));
-console.log("📦 [ArchiteQt] Type of result.output:", typeof result.output);
-
-    
-
+    // -------------------------------------------------------------------------
+    // Handle Failed Predictions
+    // -------------------------------------------------------------------------
     if (result.status === "failed") {
-      // Extract error message safely
       let errorMsg = "Generatie mislukt";
       if (result.error) {
         if (typeof result.error === 'string') {
@@ -209,14 +263,15 @@ console.log("📦 [ArchiteQt] Type of result.output:", typeof result.output);
     }
 
     const duration = Date.now() - startTime;
-
-    // Get the output URL directly (don't download)
-    const outputUrl = Array.isArray(result.output) ? result.output[0] : result.output;
-
     console.log("✅ [ArchiteQt] Generatie voltooid in", duration, "ms");
-    console.log("📍 [DEBUG] Output URL:", outputUrl);
 
-    if (!outputUrl || typeof outputUrl !== 'string') {
+    // -------------------------------------------------------------------------
+    // FIX: Extract URL from FileOutput object (SDK v1.0+)
+    // -------------------------------------------------------------------------
+    const outputUrl = extractOutputUrl(result.output);
+    console.log("📍 [ArchiteQt] Final output URL:", outputUrl);
+
+    if (!outputUrl) {
       throw new Error("Geen output URL ontvangen");
     }
 
@@ -242,7 +297,6 @@ console.log("📦 [ArchiteQt] Type of result.output:", typeof result.output);
 
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
-    // Specifieke error responses
     if (errorMessage.includes("rate limit") || errorMessage.includes("Rate limit")) {
       return NextResponse.json(
         { 
@@ -284,7 +338,6 @@ console.log("📦 [ArchiteQt] Type of result.output:", typeof result.output);
       );
     }
 
-    // Handle Bytescale/input image errors specifically
     if (errorMessage.includes("input_media_unsupported") || 
         errorMessage.includes("invalid, corrupt") ||
         errorMessage.includes("Bad Request for url")) {
@@ -297,7 +350,6 @@ console.log("📦 [ArchiteQt] Type of result.output:", typeof result.output);
       );
     }
 
-    // Generic error
     return NextResponse.json(
       { 
         error: "Generatie mislukt", 
