@@ -186,6 +186,12 @@ export async function POST(request: Request) {
       console.log("🔄 [ArchiteQt] Status:", result.status);
     }
 
+    // ← HIER moet de logging staan, NA de loop!
+console.log("📦 [ArchiteQt] Final result.output:", JSON.stringify(result.output));
+console.log("📦 [ArchiteQt] Type of result.output:", typeof result.output);
+
+    
+
     if (result.status === "failed") {
       // Extract error message safely
       let errorMsg = "Generatie mislukt";
