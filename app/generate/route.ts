@@ -1,10 +1,8 @@
 // =============================================================================
 // ARCHITEQT - AI Room Designer API Route
-// Model: rocketdigitalai/interior-design-sdxl-lightning
-// Speed: ~9 seconds | Cost: ~$0.011/generation
+// Model: adirik/interior-design (Realistic Vision V3.0 + ControlNet)
+// Quality: Photorealistic | Runs: 1.9M+ | Cost: ~$0.006/generation
 // Last Updated: 2026-02-06
-// FIX: Handle Replicate SDK v1.0+ FileOutput objects (not raw URLs)
-// FIX: Convert Bytescale thumbnail URLs to raw URLs for Replicate compatibility
 // =============================================================================
 
 import Replicate from "replicate";
@@ -70,12 +68,11 @@ function fixBytescaleUrl(url: string): string {
 // =============================================================================
 function extractOutputUrl(output: unknown): string {
   console.log("📦 [ArchiteQt] Extracting URL from output...");
-  console.log("   Raw output:", JSON.stringify(output));
-  console.log("   Type:", typeof output);
+  console.log("   Raw output type:", typeof output);
 
-  // Case 1: Direct string URL (old SDK format)
+  // Case 1: Direct string URL (old SDK format or direct API)
   if (typeof output === 'string') {
-    console.log("   ✅ Direct string URL");
+    console.log("   ✅ Direct string URL detected");
     return output;
   }
 
@@ -83,13 +80,11 @@ function extractOutputUrl(output: unknown): string {
   if (output && typeof output === 'object' && !Array.isArray(output)) {
     const fileOutput = output as Record<string, unknown>;
     
-    // Check for .url property (FileOutput standard)
     if (typeof fileOutput.url === 'string') {
       console.log("   ✅ FileOutput object with .url property");
       return fileOutput.url;
     }
     
-    // Check for other common properties
     if (typeof fileOutput.image === 'string') {
       console.log("   ✅ Object with .image property");
       return fileOutput.image;
@@ -99,12 +94,15 @@ function extractOutputUrl(output: unknown): string {
       console.log("   ✅ Object with .output property");
       return fileOutput.output;
     }
+
+    // Log the actual object structure for debugging
+    console.log("   📦 Object keys:", Object.keys(fileOutput));
   }
 
   // Case 3: Array of outputs
   if (Array.isArray(output) && output.length > 0) {
     const first = output[0];
-    console.log("   📦 Array output, first element:", JSON.stringify(first));
+    console.log("   📦 Array output, processing first element");
     
     if (typeof first === 'string') {
       console.log("   ✅ Array of strings");
@@ -120,7 +118,7 @@ function extractOutputUrl(output: unknown): string {
     }
   }
 
-  console.error("   ❌ Could not extract URL from output");
+  console.error("   ❌ Could not extract URL. Raw output:", JSON.stringify(output));
   throw new Error("Kon geen geldige afbeelding URL extraheren uit de AI response");
 }
 
@@ -202,25 +200,31 @@ export async function POST(request: Request) {
     const { prompt, negativePrompt } = buildPrompt(theme, room);
 
     console.log("🎨 [ArchiteQt] Generatie gestart");
+    console.log("   Model: adirik/interior-design (Realistic Vision V3.0)");
     console.log("   Stijl:", theme);
     console.log("   Kamer:", room);
     console.log("   Image URL:", imageUrl);
     console.log("   Prompt (preview):", prompt.substring(0, 80) + "...");
 
     // -------------------------------------------------------------------------
-    // Replicate API Call - Use predictions.create with polling
+    // Replicate API Call - adirik/interior-design
+    // Uses Realistic Vision V3.0 + Segmentation + MLSD ControlNets
     // -------------------------------------------------------------------------
     const startTime = Date.now();
 
     const prediction = await replicate.predictions.create({
-      version: "5d8da4e5c98fea03dcfbe3ec89e40cf0f4a0074a8930fa02aa0ee2aaf98c3d11",
+      // adirik/interior-design - Photorealistic interior design
+      // 1.9M+ runs, proven quality
+      version: "76604baddc85b1b4616e1c6475eca080da339c8875bd4996705571e0c7a0d20f",
       input: {
         image: imageUrl,
         prompt: prompt,
         negative_prompt: negativePrompt,
-        num_inference_steps: 6,
-        guidance_scale: 7.5,
-        depth_strength: 0.8,
+        // Optimized parameters for best quality
+        num_inference_steps: 30,      // More steps = better quality (was 6)
+        guidance_scale: 7.5,          // Standard for Realistic Vision
+        prompt_strength: 0.8,         // Balance between original and new design
+        // seed: omitted for random variation
       },
     });
 
@@ -230,7 +234,7 @@ export async function POST(request: Request) {
     // Poll for completion (with timeout)
     // -------------------------------------------------------------------------
     let result = prediction;
-    const maxWaitTime = 120000; // 120 seconds max (increased for slow generations)
+    const maxWaitTime = 120000; // 120 seconds max
     const pollInterval = 2000;
     const startPoll = Date.now();
 
@@ -285,7 +289,8 @@ export async function POST(request: Request) {
         duration: duration,
         style: theme,
         room: room,
-        model: "interior-design-sdxl-lightning",
+        model: "adirik/interior-design",
+        version: "realistic-vision-v3.0",
       },
     });
 
