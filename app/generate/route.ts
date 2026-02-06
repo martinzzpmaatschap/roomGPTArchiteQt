@@ -2,14 +2,15 @@
 // ARCHITEQT - AI Room Designer API Route
 // Model: rocketdigitalai/interior-design-sdxl-lightning
 // Speed: ~9 seconds | Cost: ~$0.011/generation
-// Last Updated: 2026-02-02
+// Last Updated: 2026-02-06
+// FIX: Convert Bytescale thumbnail URLs to raw URLs for Replicate compatibility
 // =============================================================================
 
 import Replicate from "replicate";
 import { NextResponse } from "next/server";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
-import { getStyleByName, buildPrompt } from "../../utils/dropdownTypes";
+import { buildPrompt } from "../../utils/dropdownTypes";
 
 // =============================================================================
 // UPSTASH REDIS SETUP (Rate Limiting)
@@ -36,6 +37,35 @@ const ratelimit = redis
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
 });
+
+// =============================================================================
+// HELPER: Fix Bytescale URL for Replicate compatibility
+// Replicate cannot fetch /thumbnail/ URLs - they return transformation metadata
+// instead of actual image data. We need to use /raw/ URLs instead.
+// =============================================================================
+function fixBytescaleUrl(url: string): string {
+  if (!url) return url;
+  
+  // Check if this is a Bytescale URL with /thumbnail/ path
+  if (url.includes('upcdn.io') && url.includes('/thumbnail/')) {
+    const fixedUrl = url.replace('/thumbnail/', '/raw/');
+    console.log("🔧 [ArchiteQt] Fixed Bytescale URL:");
+    console.log("   Original:", url);
+    console.log("   Fixed:", fixedUrl);
+    return fixedUrl;
+  }
+  
+  // Also handle /image/ transformation URLs (just in case)
+  if (url.includes('upcdn.io') && url.includes('/image/')) {
+    const fixedUrl = url.replace('/image/', '/raw/');
+    console.log("🔧 [ArchiteQt] Fixed Bytescale image URL:");
+    console.log("   Original:", url);
+    console.log("   Fixed:", fixedUrl);
+    return fixedUrl;
+  }
+  
+  return url;
+}
 
 // =============================================================================
 // POST HANDLER
@@ -78,12 +108,12 @@ export async function POST(request: Request) {
     // Parse Request Body
     // -------------------------------------------------------------------------
     const body = await request.json();
-    const { imageUrl, theme, room } = body;
+    const { imageUrl: rawImageUrl, theme, room } = body;
 
     // -------------------------------------------------------------------------
     // Input Validation
     // -------------------------------------------------------------------------
-    if (!imageUrl) {
+    if (!rawImageUrl) {
       return NextResponse.json(
         { error: "Geen afbeelding opgegeven. Upload eerst een foto van je kamer." },
         { status: 400 }
@@ -105,6 +135,11 @@ export async function POST(request: Request) {
     }
 
     // -------------------------------------------------------------------------
+    // FIX: Convert Bytescale thumbnail URL to raw URL
+    // -------------------------------------------------------------------------
+    const imageUrl = fixBytescaleUrl(rawImageUrl);
+
+    // -------------------------------------------------------------------------
     // Build Prompts using Helper Function
     // -------------------------------------------------------------------------
     const { prompt, negativePrompt } = buildPrompt(theme, room);
@@ -112,76 +147,86 @@ export async function POST(request: Request) {
     console.log("🎨 [ArchiteQt] Generatie gestart");
     console.log("   Stijl:", theme);
     console.log("   Kamer:", room);
+    console.log("   Image URL:", imageUrl);
     console.log("   Prompt (preview):", prompt.substring(0, 80) + "...");
 
     // -------------------------------------------------------------------------
-// Replicate API Call - Use predictions.create instead of run
-// -------------------------------------------------------------------------
-const startTime = Date.now();
+    // Replicate API Call - Use predictions.create with polling
+    // -------------------------------------------------------------------------
+    const startTime = Date.now();
 
-// Create prediction (don't wait for download)
-const prediction = await replicate.predictions.create({
-  version: "5d8da4e5c98fea03dcfbe3ec89e40cf0f4a0074a8930fa02aa0ee2aaf98c3d11",
-  input: {
-    image: imageUrl,
-    prompt: prompt,
-    negative_prompt: negativePrompt,
-    num_inference_steps: 6,
-    guidance_scale: 7.5,
-    depth_strength: 0.8,
-  },
-});
+    // Create prediction (don't wait for download)
+    const prediction = await replicate.predictions.create({
+      version: "5d8da4e5c98fea03dcfbe3ec89e40cf0f4a0074a8930fa02aa0ee2aaf98c3d11",
+      input: {
+        image: imageUrl,
+        prompt: prompt,
+        negative_prompt: negativePrompt,
+        num_inference_steps: 6,
+        guidance_scale: 7.5,
+        depth_strength: 0.8,
+      },
+    });
 
-console.log("🎨 [ArchiteQt] Prediction created:", prediction.id);
+    console.log("🎨 [ArchiteQt] Prediction created:", prediction.id);
 
-// Poll for completion (with timeout)
-let result = prediction;
-const maxWaitTime = 45000; // 45 seconds max
-const pollInterval = 2000; // Check every 2 seconds
-const startPoll = Date.now();
+    // Poll for completion (with timeout)
+    let result = prediction;
+    const maxWaitTime = 45000; // 45 seconds max
+    const pollInterval = 2000; // Check every 2 seconds
+    const startPoll = Date.now();
 
-while (result.status !== "succeeded" && result.status !== "failed") {
-  if (Date.now() - startPoll > maxWaitTime) {
-    throw new Error("Timeout: Generatie duurde te lang");
-  }
-  
-  await new Promise(resolve => setTimeout(resolve, pollInterval));
-  result = await replicate.predictions.get(prediction.id);
-  console.log("🔄 [ArchiteQt] Status:", result.status);
-}
+    while (result.status !== "succeeded" && result.status !== "failed") {
+      if (Date.now() - startPoll > maxWaitTime) {
+        throw new Error("Timeout: Generatie duurde te lang");
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      result = await replicate.predictions.get(prediction.id);
+      console.log("🔄 [ArchiteQt] Status:", result.status);
+    }
 
-if (result.status === "failed") {
-  const errorMsg = typeof result.error === 'string' 
-    ? result.error 
-    : (result.error as any)?.message || "Generatie mislukt";
-  throw new Error(errorMsg);
-}
+    if (result.status === "failed") {
+      // Extract error message safely
+      let errorMsg = "Generatie mislukt";
+      if (result.error) {
+        if (typeof result.error === 'string') {
+          errorMsg = result.error;
+        } else if (typeof result.error === 'object') {
+          const errorObj = result.error as Record<string, unknown>;
+          errorMsg = (errorObj.message as string) || 
+                     (errorObj.detail as string) || 
+                     JSON.stringify(result.error);
+        }
+      }
+      throw new Error(errorMsg);
+    }
 
-const duration = Date.now() - startTime;
+    const duration = Date.now() - startTime;
 
-// Get the output URL directly (don't download)
-const outputUrl = Array.isArray(result.output) ? result.output[0] : result.output;
+    // Get the output URL directly (don't download)
+    const outputUrl = Array.isArray(result.output) ? result.output[0] : result.output;
 
-console.log("✅ [ArchiteQt] Generatie voltooid in", duration, "ms");
-console.log("🔍 [DEBUG] Output URL:", outputUrl);
+    console.log("✅ [ArchiteQt] Generatie voltooid in", duration, "ms");
+    console.log("📍 [DEBUG] Output URL:", outputUrl);
 
-if (!outputUrl || typeof outputUrl !== 'string') {
-  throw new Error("Geen output URL ontvangen");
-}
+    if (!outputUrl || typeof outputUrl !== 'string') {
+      throw new Error("Geen output URL ontvangen");
+    }
 
-// -------------------------------------------------------------------------
-// Return Success Response
-// -------------------------------------------------------------------------
-return NextResponse.json({
-  success: true,
-  output: outputUrl,
-  metadata: {
-    duration: duration,
-    style: theme,
-    room: room,
-    model: "interior-design-sdxl-lightning",
-  },
-});
+    // -------------------------------------------------------------------------
+    // Return Success Response
+    // -------------------------------------------------------------------------
+    return NextResponse.json({
+      success: true,
+      output: outputUrl,
+      metadata: {
+        duration: duration,
+        style: theme,
+        room: room,
+        model: "interior-design-sdxl-lightning",
+      },
+    });
 
   } catch (error: unknown) {
     // -------------------------------------------------------------------------
@@ -230,6 +275,19 @@ return NextResponse.json({
           message: "De generatie duurde te lang. Probeer het opnieuw met een kleinere afbeelding." 
         },
         { status: 504 }
+      );
+    }
+
+    // Handle Bytescale/input image errors specifically
+    if (errorMessage.includes("input_media_unsupported") || 
+        errorMessage.includes("invalid, corrupt") ||
+        errorMessage.includes("Bad Request for url")) {
+      return NextResponse.json(
+        { 
+          error: "Afbeelding niet ondersteund", 
+          message: "De geüploade afbeelding kon niet worden verwerkt. Probeer een andere foto (JPG of PNG)." 
+        },
+        { status: 400 }
       );
     }
 
