@@ -17,10 +17,13 @@ import downloadPhoto from "../../utils/downloadPhoto";
 import DropDown from "../../components/DropDown";
 import { roomType, rooms, themeType, themes } from "../../utils/dropdownTypes";
 
+// =============================================================================
+// BYTESCALE UPLOAD WIDGET CONFIGURATION
+// =============================================================================
 const options: UploadWidgetConfig = {
   apiKey: !!process.env.NEXT_PUBLIC_UPLOAD_API_KEY
-      ? process.env.NEXT_PUBLIC_UPLOAD_API_KEY
-      : "free",
+    ? process.env.NEXT_PUBLIC_UPLOAD_API_KEY
+    : "free",
   maxFileCount: 1,
   mimeTypes: ["image/jpeg", "image/png", "image/jpg"],
   editor: { images: { crop: false } },
@@ -50,7 +53,7 @@ export default function DreamPage() {
   const [error, setError] = useState<string | null>(null);
   const [photoName, setPhotoName] = useState<string | null>(null);
   const [theme, setTheme] = useState<themeType>("Modern");
-  const [room, setRoom] = useState<roomType>("Living Room");
+  const [room, setRoom] = useState<roomType>("Woonkamer");
 
   const UploadDropZone = () => (
     <UploadDropzone
@@ -59,14 +62,28 @@ export default function DreamPage() {
         if (uploadedFiles.length !== 0) {
           const image = uploadedFiles[0];
           const imageName = image.originalFile.originalFileName;
+          
+          // =================================================================
+          // FIX: Use /raw/ URL instead of /thumbnail/ transformation
+          // Replicate needs actual image bytes, not transformation metadata
+          // =================================================================
           const imageUrl = UrlBuilder.url({
             accountId: image.accountId,
             filePath: image.filePath,
+            // Use "image" transformation with size limits for Replicate
             options: {
-              transformation: "preset",
-              transformationPreset: "thumbnail"
+              transformation: "image",
+              transformationParams: {
+                w: 1024,  // Max width - keeps file size manageable
+                h: 1024,  // Max height
+                fit: "max"  // Maintain aspect ratio, don't crop
+              }
             }
           });
+          
+          console.log("📸 [ArchiteQt] Image uploaded:", imageName);
+          console.log("🔗 [ArchiteQt] Image URL for Replicate:", imageUrl);
+          
           setPhotoName(imageName);
           setOriginalPhoto(imageUrl);
           generatePhoto(imageUrl);
@@ -78,38 +95,46 @@ export default function DreamPage() {
   );
 
   async function generatePhoto(fileUrl: string) {
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  setLoading(true);
-  setError(null);
-  
-  try {
-    const res = await fetch("/generate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ imageUrl: fileUrl, theme, room }),
-    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    setLoading(true);
+    setError(null);
 
-    const data = await res.json();
-    
-    if (res.status !== 200) {
-      setError(data.message || data.error || "Er ging iets mis bij het genereren");
-    } else {
-      // Handle Replicate output (can be string or array)
-      const imageUrl = Array.isArray(data.output) 
-        ? data.output[0] 
-        : data.output;
-      setRestoredImage(imageUrl);
+    try {
+      console.log("🎨 [ArchiteQt] Starting generation...");
+      console.log("   Style:", theme);
+      console.log("   Room:", room);
+      console.log("   Image URL:", fileUrl);
+
+      const res = await fetch("/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ imageUrl: fileUrl, theme, room }),
+      });
+
+      const data = await res.json();
+
+      if (res.status !== 200) {
+        console.error("❌ [ArchiteQt] Generation failed:", data);
+        setError(data.message || data.error || "Er ging iets mis bij het genereren");
+      } else {
+        // Handle Replicate output (can be string or array)
+        const imageUrl = Array.isArray(data.output)
+          ? data.output[0]
+          : data.output;
+        console.log("✅ [ArchiteQt] Generation complete:", imageUrl);
+        setRestoredImage(imageUrl);
+      }
+    } catch (err) {
+      console.error("❌ [ArchiteQt] Network error:", err);
+      setError("Netwerkfout. Controleer je internetverbinding.");
     }
-  } catch (err) {
-    setError("Netwerkfout. Controleer je internetverbinding.");
+
+    setTimeout(() => {
+      setLoading(false);
+    }, 1300);
   }
-  
-  setTimeout(() => {
-    setLoading(false);
-  }, 1300);
-}
 
   return (
     <div className="flex max-w-6xl mx-auto flex-col items-center justify-center py-2 min-h-screen">
