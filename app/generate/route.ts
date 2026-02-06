@@ -172,7 +172,7 @@ export async function POST(request: Request) {
 
     // Poll for completion (with timeout)
     let result = prediction;
-    const maxWaitTime = 45000; // 45 seconds max
+    const maxWaitTime = 55000; // 45 seconds max
     const pollInterval = 2000; // Check every 2 seconds
     const startPoll = Date.now();
 
