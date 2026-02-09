@@ -29,17 +29,17 @@ const options: UploadWidgetConfig = {
   editor: { images: { crop: false } },
   styles: {
     colors: {
-      primary: "#2563EB", // Primary buttons & links
-      error: "#d23f4d", // Error messages
-      shade100: "#fff", // Standard text
-      shade200: "#fffe", // Secondary button text
-      shade300: "#fffd", // Secondary button text (hover)
-      shade400: "#fffc", // Welcome text
-      shade500: "#fff9", // Modal close button
-      shade600: "#fff7", // Border
-      shade700: "#fff2", // Progress indicator background
-      shade800: "#fff1", // File item background
-      shade900: "#ffff", // Various (draggable crop buttons, etc.)
+      primary: "#10b981", // Emerald — ArchiteQt brand
+      error: "#d23f4d",
+      shade100: "#fff",
+      shade200: "#fffe",
+      shade300: "#fffd",
+      shade400: "#fffc",
+      shade500: "#fff9",
+      shade600: "#fff7",
+      shade700: "#fff2",
+      shade800: "#fff1",
+      shade900: "#ffff",
     },
   },
 };
@@ -62,28 +62,23 @@ export default function DreamPage() {
         if (uploadedFiles.length !== 0) {
           const image = uploadedFiles[0];
           const imageName = image.originalFile.originalFileName;
-          
-          // =================================================================
-          // FIX: Use /raw/ URL instead of /thumbnail/ transformation
-          // Replicate needs actual image bytes, not transformation metadata
-          // =================================================================
+
           const imageUrl = UrlBuilder.url({
             accountId: image.accountId,
             filePath: image.filePath,
-            // Use "image" transformation with size limits for Replicate
             options: {
               transformation: "image",
               transformationParams: {
-                w: 1024,  // Max width - keeps file size manageable
-                h: 1024,  // Max height
-                fit: "max"  // Maintain aspect ratio, don't crop
-              }
-            }
+                w: 1024,
+                h: 1024,
+                fit: "max",
+              },
+            },
           });
-          
-          console.log("📸 [ArchiteQt] Image uploaded:", imageName);
-          console.log("🔗 [ArchiteQt] Image URL for Replicate:", imageUrl);
-          
+
+          console.log("📸 [ArchiteQt Vision] Image uploaded:", imageName);
+          console.log("🔗 [ArchiteQt Vision] Image URL:", imageUrl);
+
           setPhotoName(imageName);
           setOriginalPhoto(imageUrl);
           generatePhoto(imageUrl);
@@ -100,10 +95,9 @@ export default function DreamPage() {
     setError(null);
 
     try {
-      console.log("🎨 [ArchiteQt] Starting generation...");
+      console.log("🎨 [ArchiteQt Vision] Starting generation...");
       console.log("   Style:", theme);
       console.log("   Room:", room);
-      console.log("   Image URL:", fileUrl);
 
       const res = await fetch("/generate", {
         method: "POST",
@@ -116,18 +110,19 @@ export default function DreamPage() {
       const data = await res.json();
 
       if (res.status !== 200) {
-        console.error("❌ [ArchiteQt] Generation failed:", data);
-        setError(data.message || data.error || "Er ging iets mis bij het genereren");
+        console.error("❌ [ArchiteQt Vision] Generation failed:", data);
+        setError(
+          data.message || data.error || "Er ging iets mis bij het genereren"
+        );
       } else {
-        // Handle Replicate output (can be string or array)
         const imageUrl = Array.isArray(data.output)
           ? data.output[0]
           : data.output;
-        console.log("✅ [ArchiteQt] Generation complete:", imageUrl);
+        console.log("✅ [ArchiteQt Vision] Generation complete:", imageUrl);
         setRestoredImage(imageUrl);
       }
     } catch (err) {
-      console.error("❌ [ArchiteQt] Network error:", err);
+      console.error("❌ [ArchiteQt Vision] Network error:", err);
       setError("Netwerkfout. Controleer je internetverbinding.");
     }
 
@@ -141,7 +136,7 @@ export default function DreamPage() {
       <Header />
       <main className="flex flex-1 w-full flex-col items-center justify-center text-center px-4 mt-4 sm:mb-0 mb-8">
         <h1 className="mx-auto max-w-4xl font-display text-4xl font-bold tracking-normal text-slate-100 sm:text-6xl mb-5">
-          Ontwerp je <span className="text-blue-600">droom</span>kamer
+          Ontwerp je <span className="text-emerald-500">droom</span>kamer
         </h1>
         <ResizablePanel>
           <AnimatePresence mode="wait">
@@ -154,7 +149,7 @@ export default function DreamPage() {
                         src="/number-1-white.svg"
                         width={30}
                         height={30}
-                        alt="1 icon"
+                        alt="Stap 1"
                       />
                       <p className="text-left font-medium">
                         Kies je interieurstijl.
@@ -174,7 +169,7 @@ export default function DreamPage() {
                         src="/number-2-white.svg"
                         width={30}
                         height={30}
-                        alt="1 icon"
+                        alt="Stap 2"
                       />
                       <p className="text-left font-medium">
                         Kies je kamertype.
@@ -192,7 +187,7 @@ export default function DreamPage() {
                         src="/number-3-white.svg"
                         width={30}
                         height={30}
-                        alt="1 icon"
+                        alt="Stap 3"
                       />
                       <p className="text-left font-medium">
                         Upload een foto van je kamer.
@@ -227,7 +222,7 @@ export default function DreamPage() {
               {!originalPhoto && <UploadDropZone />}
               {originalPhoto && !restoredImage && (
                 <Image
-                  alt="original photo"
+                  alt="originele foto"
                   src={originalPhoto}
                   className="rounded-2xl h-96"
                   width={475}
@@ -247,10 +242,10 @@ export default function DreamPage() {
                     />
                   </div>
                   <div className="sm:mt-0 mt-8">
-                    <h2 className="mb-1 font-medium text-lg">Gegenereerd</h2>
+                    <h2 className="mb-1 font-medium text-lg">AI Herontwerp</h2>
                     <a href={restoredImage} target="_blank" rel="noreferrer">
                       <Image
-                        alt="restored photo"
+                        alt="AI herontwerp"
                         src={restoredImage}
                         className="rounded-2xl relative sm:mt-0 mt-2 cursor-zoom-in w-full h-96"
                         width={475}
@@ -264,7 +259,7 @@ export default function DreamPage() {
               {loading && (
                 <button
                   disabled
-                  className="bg-blue-500 rounded-full text-white font-medium px-4 pt-2 pb-3 mt-8 w-40"
+                  className="bg-emerald-600 rounded-full text-white font-medium px-4 pt-2 pb-3 mt-8 w-40"
                 >
                   <span className="pt-4">
                     <LoadingDots color="white" style="large" />
@@ -273,7 +268,7 @@ export default function DreamPage() {
               )}
               {error && (
                 <div
-                  className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl mt-8"
+                  className="bg-red-900/30 border border-red-500/50 text-red-300 px-4 py-3 rounded-xl mt-8"
                   role="alert"
                 >
                   <span className="block sm:inline">{error}</span>
@@ -288,7 +283,7 @@ export default function DreamPage() {
                       setRestoredLoaded(false);
                       setError(null);
                     }}
-                    className="bg-blue-500 rounded-full text-white font-medium px-4 py-2 mt-8 hover:bg-blue-500/80 transition"
+                    className="bg-emerald-600 rounded-full text-white font-medium px-4 py-2 mt-8 hover:bg-emerald-500 transition"
                   >
                     Nieuwe Kamer Genereren
                   </button>
@@ -307,6 +302,24 @@ export default function DreamPage() {
                   </button>
                 )}
               </div>
+
+              {/* CTA naar ArchiteQt platform */}
+              {restoredLoaded && (
+                <div className="mt-10 mb-4 p-6 rounded-2xl bg-emerald-950/30 border border-emerald-800/40 max-w-lg">
+                  <p className="text-gray-300 text-sm mb-3">
+                    💡 Met ArchiteQt krijg je ook urenregistratie, offertes,
+                    rapportages en meer — speciaal voor architecten.
+                  </p>
+                  <a
+                    href="https://architeqt.tech/signup"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-block bg-emerald-600 rounded-lg text-white text-sm font-medium px-5 py-2.5 hover:bg-emerald-500 transition"
+                  >
+                    30 dagen gratis proberen →
+                  </a>
+                </div>
+              )}
             </motion.div>
           </AnimatePresence>
         </ResizablePanel>
