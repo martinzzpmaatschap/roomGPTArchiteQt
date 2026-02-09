@@ -2,10 +2,10 @@ import { Analytics } from "@vercel/analytics/react";
 import { Metadata } from "next";
 import "../styles/globals.css";
 
-let title = "Dream Room Generator";
-let description = "Generate your dream room in seconds.";
-let ogimage = "https://roomgpt-demo.vercel.app/og-image.png";
-let sitename = "roomGPT.io";
+let title = "ArchiteQt Vision — AI Kamer Designer voor Architecten";
+let description = "Herontwerp elke ruimte met AI. Upload een foto, kies een stijl, en ontvang een professioneel interieurontwerp in seconden. Door ArchiteQt.";
+let ogimage = "https://room-gpt-archite-qt.vercel.app/og-image.png";
+let sitename = "ArchiteQt Vision";
 
 export const metadata: Metadata = {
   title,
@@ -17,9 +17,9 @@ export const metadata: Metadata = {
     images: [ogimage],
     title,
     description,
-    url: "https://roomgpt-demo.vercel.app",
+    url: "https://room-gpt-archite-qt.vercel.app",
     siteName: sitename,
-    locale: "en_US",
+    locale: "nl_NL",
     type: "website",
   },
   twitter: {
@@ -36,8 +36,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="bg-[#17181C] text-white">
+    <html lang="nl">
+      <body className="bg-[#0f1117] text-white">
         {children}
         <Analytics />
       </body>
