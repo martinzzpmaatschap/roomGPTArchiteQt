@@ -20,7 +20,7 @@ export default function Footer() {
       </div>
       <div className="flex items-center space-x-4 pb-4 sm:pb-0 text-sm text-gray-500">
         <a
-          href="https://architeqt.tech/pricing"
+          href="https://architeqt.tech/prijzen"
           target="_blank"
           rel="noreferrer"
           className="hover:text-emerald-400 transition"
